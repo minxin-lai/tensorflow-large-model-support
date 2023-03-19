@@ -18,6 +18,8 @@ from __future__ import absolute_import
 from __future__ import division
 from __future__ import print_function
 
+import argparse
+import sys
 import numpy as np
 import tempfile # Change not related to LMS
 import tensorflow.compat.v1 as tf
@@ -145,26 +147,26 @@ def main(unused_argv):
   tensors_to_log = {"probabilities": "softmax_tensor"}
   logging_hook = tf.train.LoggingTensorHook(
       tensors=tensors_to_log, every_n_iter=50)
-
+  batch_size = FLAGS.batch_size
   # Train the model
   train_input_fn = tf.estimator.inputs.numpy_input_fn(
       x={"x": train_data},
       y=train_labels,
-      batch_size=100,
+      batch_size=batch_size,
       num_epochs=None,
       shuffle=True)
-
+  hooks = []
   # Hook for Large Model Support
-  from tensorflow_large_model_support import LMS
+#   from tensorflow_large_model_support import LMS
   # This model does not require TFLMS to successfully run. If we do not
   # specify specific tuning parameters to LMS, the auto tuning will determine
   # that TFLMS is not needed and disable it.
-  lms_hook = LMS(swapout_threshold=50, swapin_ahead=3, swapin_groupby=2)
+#   lms_hook = LMS(swapout_threshold=50, swapin_ahead=3, swapin_groupby=2)
 
   mnist_classifier.train(
       input_fn=train_input_fn,
-      steps=20000,
-      hooks=[logging_hook, lms_hook])
+      steps=500,
+      hooks=hooks)
 
   # Evaluate the model and print results
   eval_input_fn = tf.estimator.inputs.numpy_input_fn(
@@ -178,4 +180,15 @@ def main(unused_argv):
 
 
 if __name__ == "__main__":
-  tf.app.run()
+  parser = argparse.ArgumentParser()
+  parser.add_argument('--data_dir', type=str,
+                      default='/tmp/tensorflow/mnist/input_data',
+                      help='Directory for storing input data')
+  parser.add_argument('--batch_size',
+                        help='Batch size to train. Default is 512',
+                        type=int,
+                        default=512)
+  FLAGS, unparsed = parser.parse_known_args()
+  tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
+
+#   tf.app.run()

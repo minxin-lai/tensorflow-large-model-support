@@ -37,7 +37,7 @@ import tensorflow.compat.v1 as tf
 tf.disable_v2_behavior()
 
 import numpy
-
+from tensorflow.python.client import timeline
 tf.logging.set_verbosity(tf.logging.INFO)
 FLAGS = None
 
@@ -155,37 +155,71 @@ def main(_):
   accuracy = tf.reduce_mean(correct_prediction)
 
   # Enable Large Model Support
-  from tensorflow_large_model_support import LMS
+  # from tensorflow_large_model_support import LMS
   # This model does not require TFLMS to successfully run. If we do not
   # specify specific tuning parameters to LMS, the auto tuning will determine
   # that TFLMS is not needed and disable it.
-  lms_model = LMS(swapout_threshold=50, swapin_ahead=3, swapin_groupby=2)
-  lms_model.excl_output_by_scopes = {'loss', 'accuracy', 'dropout'}
-  lms_model.run()
+  # lms_model = LMS(swapout_threshold=50, swapin_ahead=3, swapin_groupby=2)
+  # lms_model.excl_output_by_scopes = {'loss', 'accuracy', 'dropout'}
+  # lms_model.run()
 
-  graph_location = tempfile.mkdtemp()
-  print('Saving graph to: %s' % graph_location)
-  train_writer = tf.summary.FileWriter(graph_location)
-  train_writer.add_graph(tf.get_default_graph())
+  # graph_location = tempfile.mkdtemp()
+  # print('Saving graph to: %s' % graph_location)
+  # train_writer = tf.summary.FileWriter(graph_location)
+  # train_writer.add_graph(tf.get_default_graph())
 
-  with tf.Session() as sess:
-    sess.run(tf.global_variables_initializer())
-    for i in range(20000):
-      batch = mnist.train.next_batch(50)
-      if i % 100 == 0:
-        train_accuracy = accuracy.eval(feed_dict={
-            x: batch[0], y_: batch[1], keep_prob: 1.0})
-        print('step %d, training accuracy %g' % (i, train_accuracy))
-      train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+
+  batch_size = FLAGS.batch_size
+  steps = FLAGS.steps
+
+
+
+
+
+
+  if FLAGS.timeline > 0:
+    options = tf.RunOptions(trace_level=tf.RunOptions.FULL_TRACE)
+    run_metadata = tf.RunMetadata()
+    timeline_file_name = '{}_{}_{}'.format('cnn_timeline',batch_size,'.json')
+    with tf.Session() as sess:
+      sess.run(tf.global_variables_initializer())
+      for i in range(steps):
+        batch = mnist.train.next_batch(batch_size)
+        if i % 100 == 0:
+          train_accuracy = accuracy.eval(feed_dict={
+              x: batch[0], y_: batch[1], keep_prob: 1.0})
+          print('step %d, training accuracy %g' % (i, train_accuracy))
+        # train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+        sess.run(train_step,options=options, run_metadata=run_metadata,feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+      print(run_metadata.step_stats)
+      tl = timeline.Timeline(run_metadata.step_stats)
+      chrome_trace = tl.generate_chrome_trace_format()
+      with open(timeline_file_name, 'w') as f:
+          f.write(chrome_trace)
+  else:
+    with tf.Session() as sess:
+      sess.run(tf.global_variables_initializer())
+      for i in range(steps):
+        batch = mnist.train.next_batch(batch_size)
+        if i % 100 == 0:
+          train_accuracy = accuracy.eval(feed_dict={
+              x: batch[0], y_: batch[1], keep_prob: 1.0})
+          print('step %d, training accuracy %g' % (i, train_accuracy))
+        train_step.run(feed_dict={x: batch[0], y_: batch[1], keep_prob: 0.5})
+    
+
+
+
+
 
     # compute in batches to avoid OOM on GPUs
-    accuracy_l = []
-    for _ in range(20):
-      batch = mnist.test.next_batch(500, shuffle=False)
-      accuracy_l.append(accuracy.eval(feed_dict={x: batch[0],
-                                                 y_: batch[1],
-                                                 keep_prob: 1.0}))
-    print('test accuracy %g' % numpy.mean(accuracy_l))
+    # accuracy_l = []
+    # for _ in range(20):
+    #   batch = mnist.test.next_batch(500, shuffle=False)
+    #   accuracy_l.append(accuracy.eval(feed_dict={x: batch[0],
+    #                                              y_: batch[1],
+    #                                              keep_prob: 1.0}))
+    # print('test accuracy %g' % numpy.mean(accuracy_l))
 
 
 if __name__ == '__main__':
@@ -193,5 +227,17 @@ if __name__ == '__main__':
   parser.add_argument('--data_dir', type=str,
                       default='/tmp/tensorflow/mnist/input_data',
                       help='Directory for storing input data')
+  parser.add_argument('--batch_size',
+                      help='Batch size to train. Default is 512',
+                      type=int,
+                      default=512)
+  parser.add_argument('--steps',
+                      help='set the number of steps on train dataset',
+                      type=int,
+                      default=500)
+  parser.add_argument('--timeline',
+                      help='number of steps on saving timeline. Default 0',
+                      type=int,
+                      default=0)
   FLAGS, unparsed = parser.parse_known_args()
   tf.app.run(main=main, argv=[sys.argv[0]] + unparsed)
